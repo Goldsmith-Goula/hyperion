@@ -1,0 +1,561 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans,"Anthropic Sans",sans-serif);background:transparent;color:var(--color-text-primary);overflow:hidden}
+#shell{display:flex;flex-direction:column;height:100vh;min-height:600px}
+#topbar{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--color-background-primary);border-bottom:0.5px solid var(--color-border-tertiary);z-index:30}
+.tab{padding:6px 14px;font-size:12px;cursor:pointer;border-radius:6px;border:0.5px solid var(--color-border-secondary);color:var(--color-text-secondary);background:transparent;transition:all .2s}
+.tab.active{background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500}
+#title-lbl{font-size:12px;font-weight:500;color:var(--color-text-primary);margin-left:8px}
+#main{flex:1;display:flex;overflow:hidden;position:relative}
+#viewport{flex:1;overflow:auto;position:relative;background:var(--color-background-secondary)}
+#cvs-wrap{position:relative}
+canvas{display:block;cursor:default}
+#panel{position:sticky;top:0;width:0;flex-shrink:0;overflow:hidden;transition:width .3s ease;background:var(--color-background-primary);border-left:0.5px solid var(--color-border-tertiary);height:100%;display:flex;flex-direction:column}
+#panel.open{width:270px}
+#panel-inner{width:270px;display:flex;flex-direction:column;height:100%;overflow-y:auto}
+#p-img{width:100%;height:130px;background:var(--color-background-secondary);border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;overflow:hidden}
+#p-img-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--color-text-tertiary)}
+#p-img-placeholder svg{opacity:.35}
+#p-img-placeholder span{font-size:11px}
+#p-body{padding:12px;flex:1}
+#p-close{position:absolute;top:8px;right:8px;width:22px;height:22px;border-radius:50%;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--color-text-secondary);z-index:5}
+#p-title{font-size:13px;font-weight:600;margin-bottom:3px;color:var(--color-text-primary)}
+#p-zone{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:500;margin-bottom:8px}
+#p-desc{font-size:11px;color:var(--color-text-secondary);line-height:1.6;margin-bottom:10px}
+#p-code{background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:8px;font-family:var(--font-mono,monospace);font-size:10px;line-height:1.6;color:var(--color-text-primary);white-space:pre-wrap;word-break:break-all}
+#footer{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--color-background-primary);border-top:0.5px solid var(--color-border-tertiary);z-index:30}
+.step-btn{padding:5px 14px;font-size:12px;border:0.5px solid var(--color-border-secondary);border-radius:6px;cursor:pointer;background:var(--color-background-secondary);color:var(--color-text-primary);transition:background .15s}
+.step-btn:hover{background:var(--color-background-tertiary)}
+#step-lbl{flex:1;text-align:center;font-size:12px;color:var(--color-text-secondary)}
+#dots{display:flex;gap:5px;align-items:center}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--color-border-secondary);transition:background .3s;cursor:pointer}
+.dot.active{background:var(--color-text-primary)}
+</style>
+
+<div id="shell">
+  <div id="topbar">
+    <div class="tab active" onclick="switchTab(0)">System overview</div>
+    <div class="tab" onclick="switchTab(1)">Order journey</div>
+    <span id="title-lbl">Hyperion Delivery Platform — Infrastructure</span>
+  </div>
+  <div id="main">
+    <div id="viewport">
+      <div id="cvs-wrap"><canvas id="c"></canvas></div>
+    </div>
+    <div id="panel">
+      <div id="panel-inner">
+        <div id="p-img">
+          <div id="p-close" onclick="closePanel()">×</div>
+          <div id="p-img-placeholder">
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none"><rect x="4" y="8" width="32" height="24" rx="3" stroke="currentColor" stroke-width="1.5"/><circle cx="20" cy="20" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M4 30l8-6 6 4 6-8 8 10" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            <span id="p-img-hint">Device image placeholder</span>
+          </div>
+        </div>
+        <div id="p-body">
+          <div id="p-title"></div>
+          <span id="p-zone"></span>
+          <div id="p-desc"></div>
+          <div id="p-code"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="footer">
+    <button class="step-btn" onclick="prevStep()">← Prev</button>
+    <span id="step-lbl">Click any component to inspect it</span>
+    <div id="dots"></div>
+    <button class="step-btn" onclick="nextStep()">Next →</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const viewport = document.getElementById('viewport');
+const W = 2400, H = 1900;
+canvas.width = W; canvas.height = H;
+canvas.style.width = W+'px'; canvas.style.height = H+'px';
+document.getElementById('cvs-wrap').style.cssText = `width:${W}px;height:${H}px`;
+
+const dark = matchMedia('(prefers-color-scheme:dark)').matches;
+
+// ── COLORS ────────────────────────────────────────────────────
+// Node fill colors (vivid, high contrast)
+const NC = {
+  blue:   '#2979ff', ltBlue:  '#ffffff',  // label on blue
+  teal:   '#00bfa5', ltTeal:  '#ffffff',
+  amber:  '#ff8f00', ltAmber: '#ffffff',
+  coral:  '#ff5722', ltCoral: '#ffffff',
+  purple: '#7c4dff', ltPurple:'#ffffff',
+  gray:   '#607d8b', ltGray:  '#ffffff',
+  green:  '#43a047', ltGreen: '#ffffff',
+  pink:   '#e91e63', ltPink:  '#ffffff',
+  red:    '#e53935', ltRed:   '#ffffff',
+};
+
+// Canvas background — dark slate so colors pop
+const BG  = dark ? '#111214' : '#1a1d23';
+const BG2 = dark ? '#16181c' : '#1e2128';
+
+// Zone fills/strokes — semi-transparent overlays
+const ZC = {
+  isp:    {f:'rgba(96,125,139,0.15)',  s:'rgba(144,164,174,0.6)'},
+  perim:  {f:'rgba(229,57,53,0.12)',   s:'rgba(239,83,80,0.7)'},
+  dmz:    {f:'rgba(255,143,0,0.12)',   s:'rgba(255,183,77,0.7)'},
+  app:    {f:'rgba(0,191,165,0.12)',   s:'rgba(77,208,181,0.7)'},
+  data:   {f:'rgba(41,121,255,0.12)',  s:'rgba(92,158,255,0.7)'},
+  backup: {f:'rgba(124,77,255,0.12)', s:'rgba(179,136,255,0.7)'},
+  hqlan:  {f:'rgba(67,160,71,0.12)',   s:'rgba(129,199,132,0.7)'},
+  phys:   {f:'rgba(233,30,99,0.12)',   s:'rgba(240,98,146,0.7)'},
+  branch: {f:'rgba(124,77,255,0.12)', s:'rgba(179,136,255,0.7)'},
+  field:  {f:'rgba(0,191,165,0.12)',   s:'rgba(77,208,181,0.7)'},
+};
+
+const NW=165, NH=54;
+
+const nodes=[
+  // ISP row y=30
+  {id:'internet', x:1080,y:28,  w:190,h:54, icon:'🌐',label:'Internet',        sub:'MTN / Orange Cameroon', c:NC.gray,   tc:NC.ltGray,   tab:2},
+  {id:'isp',      x:800, y:110, w:165,h:48, icon:'⬡', label:'ISP Router',      sub:'Cisco ASR 1001-X',      c:NC.blue,   tc:NC.ltBlue,   tab:2},
+  {id:'dns',      x:1050,y:110, w:160,h:48, icon:'🔤',label:'DNS Server',       sub:'Cloudflare / AD DNS',   c:NC.gray,   tc:NC.ltGray,   tab:0},
+
+  // Perimeter y=220
+  {id:'waf',   x:180, y:224,w:NW,h:NH,icon:'🛡', label:'WAF',           sub:'ModSecurity rules',    c:NC.coral,  tc:NC.ltCoral,  tab:2},
+  {id:'fw1',   x:400, y:224,w:NW,h:NH,icon:'🔥',label:'Edge Firewall',  sub:'Cisco ASA + IDS/IPS',  c:NC.red,    tc:NC.ltRed,    tab:2},
+  {id:'lb',    x:620, y:224,w:NW,h:NH,icon:'⚖', label:'Load Balancer',  sub:'HAProxy round-robin',  c:NC.purple, tc:NC.ltPurple, tab:2},
+  {id:'nac',   x:840, y:224,w:NW,h:NH,icon:'🔒',label:'NAC',            sub:'Cisco ISE device ctrl', c:NC.coral,  tc:NC.ltCoral,  tab:0},
+  {id:'rate',  x:1060,y:224,w:NW,h:NH,icon:'⏱', label:'Rate Limiter',   sub:'API throttle 100/min', c:NC.amber,  tc:NC.ltAmber,  tab:0},
+  {id:'honey', x:1280,y:224,w:NW,h:NH,icon:'🍯',label:'Honeypot',        sub:'Decoy trap server',    c:NC.pink,   tc:NC.ltPink,   tab:0},
+  {id:'ca',    x:1500,y:224,w:NW,h:NH,icon:'📜',label:'Cert Authority',  sub:'Windows ADCS / mTLS',  c:NC.gray,   tc:NC.ltGray,   tab:0},
+
+  // DMZ y=420
+  {id:'api',   x:180, y:420,w:NW,h:NH,icon:'🔌',label:'API Gateway',    sub:'Node.js + JWT + IIS',   c:NC.blue,   tc:NC.ltBlue,   tab:2},
+  {id:'ws',    x:400, y:420,w:NW,h:NH,icon:'📡',label:'WebSocket Srv',   sub:'Socket.io GPS stream',  c:NC.teal,   tc:NC.ltTeal,   tab:2},
+  {id:'dash',  x:620, y:420,w:NW,h:NH,icon:'📊',label:'Dashboard Srv',   sub:'React admin panel',     c:NC.purple, tc:NC.ltPurple, tab:2},
+  {id:'siem',  x:840, y:420,w:NW,h:NH,icon:'🔍',label:'SIEM',            sub:'Splunk / ELK logs',     c:NC.amber,  tc:NC.ltAmber,  tab:0},
+
+  // App y=630
+  {id:'app',   x:180, y:630,w:NW,h:NH,icon:'⚙', label:'App Server',     sub:'Business logic layer',  c:NC.teal,   tc:NC.ltTeal,   tab:2},
+  {id:'match', x:400, y:630,w:NW,h:NH,icon:'🔀',label:'Match Engine',    sub:'Driver assignment algo',c:NC.green,  tc:NC.ltGreen,  tab:2},
+  {id:'pay',   x:620, y:630,w:NW,h:NH,icon:'💳',label:'Payment Module',  sub:'MTN MoMo / Orange $',   c:NC.green,  tc:NC.ltGreen,  tab:2},
+  {id:'queue', x:840, y:630,w:NW,h:NH,icon:'📬',label:'RabbitMQ',        sub:'Message queue broker',  c:NC.amber,  tc:NC.ltAmber,  tab:0},
+  {id:'redis', x:1060,y:630,w:NW,h:NH,icon:'⚡',label:'Redis Cache',     sub:'Session + GPS cache',   c:NC.red,    tc:NC.ltRed,    tab:0},
+
+  // Data y=840
+  {id:'db',    x:180, y:840,w:NW,h:NH,icon:'🗄', label:'PostgreSQL DB',  sub:'Primary — AES-256',     c:NC.blue,   tc:NC.ltBlue,   tab:2},
+  {id:'dbrep', x:400, y:840,w:NW,h:NH,icon:'🗄', label:'DB Replica',     sub:'Hot standby WAL',       c:NC.blue,   tc:NC.ltBlue,   tab:0},
+  {id:'ad',    x:620, y:840,w:NW,h:NH,icon:'👥',label:'Active Directory', sub:'Auth + DHCP + DNS',     c:NC.gray,   tc:NC.ltGray,   tab:0},
+  {id:'logsvr',x:840, y:840,w:NW,h:NH,icon:'📋',label:'Log Server',       sub:'Syslog 90-day audit',   c:NC.amber,  tc:NC.ltAmber,  tab:0},
+  {id:'nagios',x:1060,y:840,w:NW,h:NH,icon:'📈',label:'Nagios / Zabbix',  sub:'Health monitor 60s',    c:NC.green,  tc:NC.ltGreen,  tab:0},
+
+  // Backup y=1050
+  {id:'bck',   x:180, y:1050,w:NW,h:NH,icon:'💾',label:'Backup Server',  sub:'Veeam full + incr',     c:NC.gray,   tc:NC.ltGray,   tab:0},
+  {id:'nas',   x:400, y:1050,w:NW,h:NH,icon:'📦',label:'NAS Storage',    sub:'Synology RAID-6 20TB',  c:NC.gray,   tc:NC.ltGray,   tab:0},
+  {id:'cloud', x:620, y:1050,w:NW,h:NH,icon:'☁', label:'Cloud Backup',   sub:'AWS S3 offsite Paris',  c:NC.blue,   tc:NC.ltBlue,   tab:0},
+  {id:'drp',   x:840, y:1050,w:NW,h:NH,icon:'🔄',label:'DRP Plan',       sub:'RTO 2h / RPO 1h',       c:NC.amber,  tc:NC.ltAmber,  tab:0},
+
+  // HQ LAN y=1260
+  {id:'swcore',x:180, y:1260,w:NW,h:NH,icon:'🔄',label:'Core Switch L3', sub:'Cisco 3850 VLAN rtr',   c:NC.gray,   tc:NC.ltGray,   tab:0},
+  {id:'ap1',   x:400, y:1260,w:NW,h:NH,icon:'📶',label:'HQ WiFi APs ×2', sub:'Cisco Aironet WPA3',    c:NC.teal,   tc:NC.ltTeal,   tab:0},
+  {id:'vlan',  x:620, y:1260,w:NW,h:NH,icon:'🔢',label:'VLANs 10–99',    sub:'5-zone segmentation',   c:NC.purple, tc:NC.ltPurple, tab:0},
+
+  // Physical security — right column y=1050–1280
+  {id:'cctv',   x:1100,y:1050,w:NW,h:NH,icon:'📷',label:'CCTV Cameras',   sub:'8× IP 1080p NVR',      c:NC.pink,   tc:NC.ltPink,   tab:0},
+  {id:'badge',  x:1320,y:1050,w:NW,h:NH,icon:'🪪', label:'Biometric Access',sub:'Fingerprint + RFID',  c:NC.pink,   tc:NC.ltPink,   tab:0},
+  {id:'ups',    x:1540,y:1050,w:NW,h:NH,icon:'🔋',label:'UPS 3000VA',     sub:'30 min APC Smart-UPS', c:NC.amber,  tc:NC.ltAmber,  tab:0},
+  {id:'gen',    x:1760,y:1050,w:NW,h:NH,icon:'⚡',label:'Generator 20kVA',sub:'Diesel 48h auto-start', c:NC.amber,  tc:NC.ltAmber,  tab:0},
+  {id:'fire',   x:1100,y:1170,w:NW,h:NH,icon:'🧯',label:'Fire Suppression',sub:'FM200 CO₂ clean agent',c:NC.red,    tc:NC.ltRed,    tab:0},
+  {id:'cooling',x:1320,y:1170,w:NW,h:NH,icon:'❄️',label:'Precision Cooling',sub:'18–22°C CRAC unit',   c:NC.blue,   tc:NC.ltBlue,   tab:0},
+  {id:'rack',   x:1540,y:1170,w:NW,h:NH,icon:'🗄️',label:'Server Rack 42U', sub:'PDU + cable mgmt',    c:NC.gray,   tc:NC.ltGray,   tab:0},
+
+  // Douala y=1470
+  {id:'vpnc',  x:180, y:1470,w:NW,h:NH,icon:'🔐',label:'VPN Concentrator',sub:'IPsec AES-256 Cisco',  c:NC.purple, tc:NC.ltPurple, tab:2},
+  {id:'fw2',   x:400, y:1470,w:NW,h:NH,icon:'🔥',label:'Branch Firewall', sub:'Perimeter + NAT',      c:NC.red,    tc:NC.ltRed,    tab:0},
+  {id:'sw3',   x:620, y:1470,w:NW,h:NH,icon:'🔀',label:'Branch Switch',   sub:'Cisco 2960 L2',        c:NC.gray,   tc:NC.ltGray,   tab:0},
+  {id:'ap2',   x:840, y:1470,w:NW,h:NH,icon:'📶',label:'Branch WiFi AP',  sub:'WPA3-Enterprise',      c:NC.teal,   tc:NC.ltTeal,   tab:0},
+  {id:'pc2',   x:1060,y:1470,w:NW,h:NH,icon:'🖥', label:'Branch PCs ×3',  sub:'Dispatch workstations',c:NC.gray,   tc:NC.ltGray,   tab:0},
+
+  // Field y=1680
+  {id:'driver',  x:180, y:1680,w:NW,h:NH,icon:'🏍', label:'Driver App',    sub:'Android 4G GPS stream',c:NC.teal,   tc:NC.ltTeal,   tab:2},
+  {id:'customer',x:420, y:1680,w:NW,h:NH,icon:'📱', label:'Customer App',  sub:'iOS/Android order+pay', c:NC.blue,   tc:NC.ltBlue,   tab:2},
+  {id:'tablet',  x:660, y:1680,w:NW,h:NH,icon:'📟', label:'Dispatcher Tab',sub:'Branch manual assign',  c:NC.gray,   tc:NC.ltGray,   tab:0},
+];
+
+const edges=[
+  {a:'internet',b:'isp',tab:2},
+  {a:'isp',b:'dns',tab:0},
+  {a:'isp',b:'waf',tab:2},
+  {a:'waf',b:'fw1',tab:2},
+  {a:'fw1',b:'lb',tab:2},
+  {a:'fw1',b:'nac',tab:0},
+  {a:'fw1',b:'rate',tab:0},
+  {a:'fw1',b:'honey',tab:0},
+  {a:'lb',b:'api',tab:2},
+  {a:'lb',b:'ws',tab:2},
+  {a:'lb',b:'dash',tab:2},
+  {a:'siem',b:'logsvr',tab:0},
+  {a:'ca',b:'api',tab:0},
+  {a:'api',b:'app',tab:2},
+  {a:'ws',b:'app',tab:2},
+  {a:'dash',b:'app',tab:2},
+  {a:'app',b:'match',tab:2},
+  {a:'app',b:'pay',tab:2},
+  {a:'app',b:'queue',tab:0},
+  {a:'app',b:'redis',tab:0},
+  {a:'app',b:'db',tab:2},
+  {a:'match',b:'db',tab:2},
+  {a:'pay',b:'db',tab:2},
+  {a:'queue',b:'db',tab:0},
+  {a:'db',b:'dbrep',tab:0},
+  {a:'db',b:'bck',tab:0},
+  {a:'app',b:'ad',tab:0},
+  {a:'db',b:'logsvr',tab:0},
+  {a:'bck',b:'nas',tab:0},
+  {a:'nas',b:'cloud',tab:0},
+  {a:'fw1',b:'vpnc',tab:2},
+  {a:'vpnc',b:'fw2',tab:0},
+  {a:'fw2',b:'sw3',tab:0},
+  {a:'sw3',b:'ap2',tab:0},
+  {a:'sw3',b:'pc2',tab:0},
+  {a:'swcore',b:'ap1',tab:0},
+  {a:'swcore',b:'vlan',tab:0},
+  {a:'db',b:'swcore',tab:0},
+  {a:'ups',b:'gen',tab:0},
+  {a:'internet',b:'driver',tab:2,dash:true},
+  {a:'internet',b:'customer',tab:2,dash:true},
+  {a:'driver',b:'api',tab:2,dash:true},
+  {a:'customer',b:'api',tab:2,dash:true},
+  {a:'driver',b:'ws',tab:2,dash:true},
+];
+
+const zones=[
+  {label:'Internet / ISP',        x:720, y:14,   w:620, h:170, ...ZC.isp,    tab:2},
+  {label:'Perimeter security',    x:100, y:200,  w:1480,h:100, ...ZC.perim,  tab:2},
+  {label:'DMZ',                   x:100, y:398,  w:900, h:100, ...ZC.dmz,    tab:2},
+  {label:'Application layer',     x:100, y:608,  w:1060,h:100, ...ZC.app,    tab:2},
+  {label:'Data layer',            x:100, y:818,  w:1060,h:100, ...ZC.data,   tab:0},
+  {label:'Backup layer',          x:100, y:1028, w:860, h:100, ...ZC.backup, tab:0},
+  {label:'HQ LAN devices',        x:100, y:1238, w:700, h:100, ...ZC.hqlan,  tab:0},
+  {label:'Physical security',     x:1020,y:1028, w:830, h:220, ...ZC.phys,   tab:0},
+  {label:'Douala branch',         x:100, y:1448, w:1060,h:100, ...ZC.branch, tab:2},
+  {label:'Field — mobile devices',x:100, y:1658, w:700, h:100, ...ZC.field,  tab:2},
+];
+
+const info={
+  internet:  {zone:'Internet',       desc:'Public internet via MTN Business and Orange Cameroon dual fiber uplinks. Provides redundancy — if one ISP fails, traffic routes through the other automatically.',code:'# Dual ISP failover\nip route 0.0.0.0/0 mtn-gw    1\nip route 0.0.0.0/0 orange-gw 10\n# Orange is backup (higher metric)'},
+  isp:       {zone:'ISP Layer',       desc:'Cisco ASR 1001-X edge router. BGP peering with both ISPs. NAT overload for all internal IPs. QoS shaping prioritises GPS/WebSocket traffic.',code:'interface GigE0/0\n ip address 41.202.x.x /24\n ip nat outside\n service-policy output QOS-SHAPE\n!\nip nat inside source list ACL1\n interface GigE0/0 overload'},
+  dns:       {zone:'ISP Layer',       desc:'Cloudflare DNS for public resolution of hyperion.cm. Internal DNS is hosted on the Active Directory server for private hostnames like db.internal.',code:'# Public DNS\n@ A  41.202.x.x\napi CNAME hyperion.cm\nws  CNAME hyperion.cm\n\n# Internal (AD DNS)\ndb.internal  A 10.20.0.5\napp.internal A 10.20.0.6'},
+  waf:       {zone:'Perimeter',       desc:'Web Application Firewall (ModSecurity). Blocks SQL injection, XSS, and path traversal attacks before any traffic reaches the API Gateway.',code:'SecRule ARGS "@detectSQLi"\n "id:1001,phase:2,deny,\n  status:403,\n  msg:\'SQL Injection\'"\nSecRule HEADERS:User-Agent\n "@pm sqlmap nikto"\n "deny,status:403"'},
+  fw1:       {zone:'Perimeter',       desc:'Cisco ASA edge firewall with IDS/IPS module. Stateful packet inspection, zone-based policy, VPN termination for Douala branch. Logs all denied traffic to SIEM.',code:'zone-pair OUTSIDE->DMZ\n service-policy inspect OUTSIDE-DMZ\n!\naccess-list OUTSIDE-DMZ\n permit tcp any host 10.30.0.10 eq 443\n deny   ip any any log'},
+  lb:        {zone:'Perimeter',       desc:'HAProxy load balancer. Round-robin across two API server instances. Health-checks every 5 seconds — failed node auto-removed until it recovers.',code:'frontend https_front\n bind *:443 ssl crt /etc/ssl/hyp.pem\n default_backend api_servers\nbackend api_servers\n balance roundrobin\n option httpchk GET /health\n server api1 10.30.0.10:3000 check\n server api2 10.30.0.11:3000 check'},
+  nac:       {zone:'Perimeter',       desc:'Cisco ISE Network Access Control. Only registered MAC addresses join the LAN. Unrecognized device gets isolated in quarantine VLAN 99 and admin is alerted.',code:'if endpoint.mac IN known_devices:\n assign VLAN 40  # Staff\nelif endpoint.mac IN tablets:\n assign VLAN 50  # Wireless\nelse:\n assign VLAN 99  # Quarantine\n alert(admin, src_mac)'},
+  rate:      {zone:'Perimeter',       desc:'Rate limiting layer prevents API abuse and DDoS. Driver app: 100 req/min. Customer app: 60 req/min. Exceeds limit returns HTTP 429.',code:'const limiter = rateLimit({\n windowMs: 60 * 1000,\n max: 100,\n keyGenerator: req =>\n   req.headers["x-device-id"],\n handler: (req,res) =>\n   res.status(429).json({\n     error:"Too many requests"\n   })\n});'},
+  honey:     {zone:'Perimeter',       desc:'Honeypot server mimics a vulnerable PostgreSQL instance. Any connection attempt triggers an immediate SIEM alert and blocks the source IP for 24 hours.',code:'if connection_detected(port=5432):\n siem.alert(\n   severity="HIGH",\n   msg=f"Honeypot: {src_ip}",\n   action="block_ip"\n )\n firewall.block(src_ip, hours=24)'},
+  ca:        {zone:'Perimeter',       desc:'Internal Certificate Authority (Windows ADCS). Issues TLS certs for all server-to-server communication. Mutual TLS (mTLS) enforced on all internal connections.',code:'# Issue internal cert\ncertreq -submit\n -attrib "CertificateTemplate:WebServer"\n request.csr\n\n# Verify mTLS\nopenssl s_client\n -connect db.internal:5432\n -cert client.crt -key client.key'},
+  api:       {zone:'DMZ',             desc:'Node.js API Gateway on Windows Server 2022 + IIS reverse proxy. First contact for all app traffic. Validates JWT tokens, applies rate limits, routes to App Server.',code:'// JWT middleware\nconst verify = (req,res,next) => {\n const tok = req.headers\n   .authorization?.split(" ")[1];\n if(!tok) return res.status(401)\n   .json({error:"No token"});\n jwt.verify(tok, SECRET,\n   (err,user) => {\n     if(err) return res.status(403)\n       .json({error:"Invalid"});\n     req.user = user; next();\n   });\n};'},
+  ws:        {zone:'DMZ',             desc:'Socket.io WebSocket server. Maintains persistent connections with all active drivers. Broadcasts GPS coordinates to matching customer sessions every 3 seconds.',code:'io.on("connection", socket => {\n socket.on("driver:location",data=>{\n   const {driverId,lat,lng}=data;\n   redis.setex(`loc:${driverId}`,10,\n     JSON.stringify({lat,lng}));\n   io.to(`order:${data.orderId}`)\n     .emit("location:update",{lat,lng});\n });\n});'},
+  dash:      {zone:'DMZ',             desc:'React dashboard on Windows Server 2022. Dispatchers see live driver map. Management sees order analytics and revenue. Role-based views via JWT claims.',code:'const ProtectedRoute=({role,children})=>{\n const {user}=useAuth();\n if(!user)\n   return <Navigate to="/login"/>;\n if(role && !user.roles.includes(role))\n   return <Navigate to="/403"/>;\n return children;\n};'},
+  siem:      {zone:'DMZ',             desc:'Splunk/ELK SIEM collects logs from all servers. Correlates events, detects anomalies, sends SMS/email alerts. Stores 90 days of searchable logs.',code:'index=hyperion_logs\n action=LOGIN_FAILED\n| stats count by src_ip\n| where count > 10\n| eval alert="Brute force: "+src_ip\n| sendemail\n    to="admin@hyperion.cm"\n    subject="SECURITY ALERT"'},
+  app:       {zone:'Application',     desc:'Core app server. Processes validated API requests. Orchestrates the full order lifecycle: creation → driver matching → GPS tracking → delivery completion.',code:'async function createOrder(data) {\n const order = await db.orders.create({\n   customerId: data.userId,\n   type: data.type,\n   pickupAddr:   data.pickup,\n   deliveryAddr: data.delivery,\n   status: "PENDING",\n });\n await matchQueue.publish(order.id);\n return order;\n}'},
+  match:     {zone:'Application',     desc:'Driver matching engine. Finds nearest available driver within 5km. Scoring: distance 60% + driver rating 25% + acceptance rate 15%.',code:'async function findDriver(order) {\n const drivers = await db.drivers\n   .findAvailable({\n     lat: order.pickup.lat,\n     lng: order.pickup.lng,\n     radiusKm: 5\n   });\n return drivers\n   .map(d => ({...d,\n     score: 0.6*d.distScore\n          + 0.25*(d.rating/5)\n          + 0.15*d.acceptRate\n   }))\n   .sort((a,b)=>b.score-a.score)[0];\n}'},
+  pay:       {zone:'Application',     desc:'Payment module calculates order total (distance × rate + service fee). Integrates with MTN MoMo and Orange Money. Records all transactions in PostgreSQL.',code:'const calcTotal=(distKm,type)=>{\n const rates={\n   FOOD:    {base:500, perKm:100},\n   ERRAND:  {base:800, perKm:150},\n   PACKAGE: {base:600, perKm:120}\n };\n const r=rates[type];\n return r.base + distKm*r.perKm;\n}; // Currency: XAF (CFA Franc)'},
+  queue:     {zone:'Application',     desc:'RabbitMQ message broker buffers order requests during peak hours (lunch 12–2pm). Guarantees delivery with automatic retry on failure.',code:'channel.publish(\n "orders_exchange","order.new",\n Buffer.from(JSON.stringify(order)),\n { persistent: true,\n   headers: {retryCount:0,maxRetry:3}}\n);\nchannel.consume("order_proc",\n async msg => processOrder(msg));'},
+  redis:     {zone:'Application',     desc:'Redis in-memory cache. Stores driver GPS positions (TTL 10s), active sessions (TTL 24h), and menu items. Reduces PostgreSQL load by ~70%.',code:'// Cache GPS\nawait redis.setex(\n `driver:loc:${driverId}`, 10,\n JSON.stringify({lat,lng,ts:Date.now()})\n);\n// Cache-aside fallback\nconst loc =\n await redis.get(`driver:loc:${id}`)\n || await db.drivers.getLocation(id);'},
+  db:        {zone:'Data Layer',      desc:'PostgreSQL 16 primary. Stores all orders, users, drivers, payments. ACID compliant. AES-256 encryption at rest via pgcrypto. Nightly full backup.',code:'CREATE TABLE orders (\n id          UUID PRIMARY KEY\n               DEFAULT gen_random_uuid(),\n customer_id UUID REFERENCES users(id),\n driver_id   UUID REFERENCES drivers(id),\n type        order_type NOT NULL,\n status      order_status DEFAULT \'PENDING\',\n total_xaf   INTEGER,\n created_at  TIMESTAMPTZ DEFAULT NOW()\n);'},
+  dbrep:     {zone:'Data Layer',      desc:'PostgreSQL hot standby replica. Streams WAL logs from primary in real-time. Auto-promotes within 30 seconds if primary fails. Read queries offloaded here.',code:'# postgresql.conf (primary)\nwal_level = replica\nmax_wal_senders = 3\nwal_keep_size = 64MB\n\n# recovery.conf (replica)\nprimary_conninfo =\n \'host=db.internal user=replicator\'\nhot_standby = on'},
+  ad:        {zone:'Data Layer',      desc:'Windows Active Directory Domain Services. Manages all staff logins, group policies, DHCP for 192.168.x.x range, and internal DNS for hyperion.local.',code:'[Security Policy]\nMinimumPasswordLength = 12\nPasswordComplexity    = Enabled\nMaximumPasswordAge    = 90 days\nLockoutThreshold      = 5 attempts\nLockoutDuration       = 30 min\n[DHCP]\nStart: 192.168.40.10\nEnd:   192.168.40.200'},
+  logsvr:    {zone:'Data Layer',      desc:'Centralised syslog server. Every server, switch and firewall ships logs here. 90-day retention. Immutable audit trail — logs cannot be manually deleted.',code:'# rsyslog client (all servers)\n*.* @@log.internal:514\n\n/etc/logrotate.d/hyperion:\n /var/log/hyperion/*.log {\n   daily\n   rotate 90\n   compress\n   notifempty\n }'},
+  nagios:    {zone:'Data Layer',      desc:'Nagios/Zabbix monitors CPU, RAM, disk, network on every server every 60 seconds. Sends SMS to on-call admin if any metric exceeds threshold or server goes offline.',code:'define service {\n host_name           api-server-01\n service_description CPU Load\n check_command\n   check_nrpe!check_load\n max_check_attempts  3\n check_interval      1\n contacts            admin_oncall\n}'},
+  bck:       {zone:'Backup Layer',    desc:'Veeam Backup server. Full backup every Sunday 02:00, incremental daily 03:00, transaction log every hour. AES-256 encrypted backup files.',code:'# Backup schedule\nFull:    Sunday   02:00\nIncr:    Mon-Sat  03:00\nTx Logs: Hourly   :05\n\nJob: Hyperion-Full\n Source:  db-server, app-server\n Target:  \\\\nas.internal\\backups\n Encrypt: AES-256'},
+  nas:       {zone:'Backup Layer',    desc:'Synology NAS with RAID-6 (6 drives, 2 can fail). 20TB usable. SMB share for backup server. Replicates to AWS S3 nightly at 04:00.',code:'# Synology DSM\nRAID level:   RAID 6\nUsable:       20 TB\nSMB share: \\\\nas.internal\\backups\nHyperBackup → AWS S3\nSchedule: daily 04:00\nEncrypt:  AES-256\nVersions: 30 days'},
+  cloud:     {zone:'Backup Layer',    desc:'AWS S3 offsite backup in eu-west-1 (Paris). 3-2-1 rule: 3 copies, 2 media (NAS + cloud), 1 offsite. 90-day lifecycle then Glacier for cost savings.',code:'{\n "Rules": [{\n   "ID": "HyperionBackup",\n   "Transitions": [{\n     "Days": 90,\n     "StorageClass": "GLACIER"\n   }],\n   "Expiration": {"Days": 365}\n }]\n}'},
+  drp:       {zone:'Backup Layer',    desc:'Disaster Recovery Plan. RTO (max downtime) = 2 hours. RPO (max data loss) = 1 hour. Monthly restore drill. Documented runbook for DB failure, server failure, and site loss.',code:'# DRP Runbook — DB failure\nRTO: 2h | RPO: 1h\n1. Alert on-call   (< 5 min)\n2. Promote replica (< 10 min)\n3. Update app DSN  (< 5 min)\n4. Verify health   (< 10 min)\n5. Notify team\n6. Post-mortem 24h'},
+  swcore:    {zone:'HQ LAN',          desc:'Cisco Catalyst 3850 Layer-3 core switch. Inter-VLAN routing with ACL enforcement. 10Gbps uplink to firewall. 1Gbps downlinks to access switches.',code:'interface vlan 20  ! Servers\n ip address 10.20.0.1 255.255.255.0\n ip access-group SERVER-ACL in\ninterface vlan 40  ! Staff\n ip address 192.168.40.1 255.255.255.0\nip access-list extended SERVER-ACL\n permit tcp 192.168.40.0/24 any eq 443'},
+  ap1:       {zone:'HQ LAN',          desc:'Two Cisco Aironet APs at HQ. SSID Hyperion-Corp on VLAN 40 (staff) and Hyperion-Tablets on VLAN 50 (devices). WPA3-Enterprise via Windows NPS.',code:'SSID-1: Hyperion-Corp\n VLAN: 40 | WPA3-Enterprise\n Band: 5GHz + 2.4GHz\nSSID-2: Hyperion-Tablets\n VLAN: 50 | WPA3-Enterprise\n Band: 5GHz\n# Auth: Windows NPS (RADIUS)'},
+  vlan:      {zone:'HQ LAN',          desc:'5-zone VLAN segmentation. VLAN 10 Management, 20 Servers, 30 DMZ, 40 Staff, 50 Wireless, 99 Quarantine. Prevents lateral movement if one zone is compromised.',code:'vlan 10  ! Management\nvlan 20  ! Servers\nvlan 30  ! DMZ\nvlan 40  ! Staff\nvlan 50  ! Wireless\nvlan 99  ! Quarantine\n!\ninterface vlan 10\n ip address 10.10.0.1 255.255.255.0'},
+  cctv:      {zone:'Physical Security',desc:'8× Dahua/Hikvision IP cameras at HQ entrances, server room, and Douala branch. 1080p recording on local NVR. 30-day retention. Motion alerts to security team.',code:'# NVR config\nCameras:   8× IP 1080p\nRetention: 30 days (4TB)\nMotion:    alert → SMS\nServer room: 24/7 + IR night\nTamper detect: enabled\n# Feed: VLAN 10 only'},
+  badge:     {zone:'Physical Security',desc:'Fingerprint + RFID card access control on server room door and main office. Only IT staff enter server room. All entries timestamped and logged.',code:'# Access policy\nServer Room:\n Who:    IT team only\n Method: Fingerprint + RFID\n Log:    all entries/exits\n Alert:  unauthorized attempt\nMain Office:\n Who:    all staff\n Method: RFID card only'},
+  ups:       {zone:'Physical Security',desc:'APC Smart-UPS 3000VA. 30 minutes runtime during ENEO outage. Triggers graceful server shutdown at 5% battery before generator takes over.',code:'# APC PowerChute\nRuntime: 30 min at full load\nAlert:   on battery → SMS+email\nShutdown at: 5% battery\n\nShutdown sequence:\n1. Suspend non-critical VMs\n2. Flush DB write-ahead log\n3. Graceful OS shutdown\n4. UPS powers off'},
+  gen:       {zone:'Physical Security',desc:'20kVA diesel generator. Auto-starts within 15 seconds of ENEO failure. Powers entire server room and networking gear. 200L tank gives ~48 hours runtime.',code:'# Generator spec\nPower:     20 kVA\nFuel:      Diesel 200L\nAuto-start: 15 seconds\nRuntime:   ~48 hours\nTest run:  monthly 30 min\n\n# ATS\nEENO fail → transfer 15s\nEENO restore → retransfer + cooldown'},
+  fire:      {zone:'Physical Security',desc:'FM200 clean agent fire suppression. Activates on dual detector (smoke + heat). 60-second staff evacuation warning before gas releases. No water — water destroys servers.',code:'# Protocol\n1. Smoke sensor triggers\n2. Heat sensor confirms\n3. Alarm (60s evacuate)\n4. FM200 gas releases\n5. Alert fire brigade\n\nCRITICAL: Never water in\nserver room'},
+  cooling:   {zone:'Physical Security',desc:'Precision CRAC air conditioning. Maintains server room at 18–22°C and 40–60% humidity. Separate from building HVAC. Hot-aisle/cold-aisle airflow.',code:'# Targets\nTemp:     18–22°C\nAlert:    >25°C or <15°C\nHumidity: 40–60% RH\nAlert:    >70% or <30%\n\n# Airflow\nCold air → front of racks\nHot air  → rear → CRAC\nCapacity: 5 kW cooling'},
+  rack:      {zone:'Physical Security',desc:'42U server rack with structured cable management. Blanking panels maintain airflow. Rack-mount PDU distributes UPS power. Front/rear locking doors.',code:'# Rack layout\nU42: Patch panel\nU40-39: Firewall + LB\nU37-36: API servers ×2\nU34:   WebSocket server\nU32:   App server\nU30-29: DB primary + replica\nU27:   AD server\nU25:   Backup server\nU23:   NAS (2U)\nU1:    PDU (UPS rail)'},
+  vpnc:      {zone:'Douala Branch',   desc:'Cisco ASA VPN concentrator. Terminates IPsec site-to-site VPN from Douala to Yaoundé HQ. AES-256 encryption, SHA-256 integrity. Always-on with Dead Peer Detection.',code:'crypto map VPN_MAP 10\n match address DOUALA-HQ\n set peer 41.202.x.x\n set transform-set AES256-SHA\n set pfs group14\n!\ntunnel-group 41.202.x.x\n type ipsec-l2l\n pre-shared-key ********\n dpd 10 3 on-demand'},
+  fw2:       {zone:'Douala Branch',   desc:'Branch perimeter firewall. Allows only VPN traffic to HQ and HTTPS for staff. Blocks all unsolicited inbound. No servers at Douala — all traffic tunnels to HQ.',code:'access-list BRANCH-OUT permit\n ip 192.168.100.0/24\n    10.0.0.0/8       ! HQ VPN\naccess-list BRANCH-OUT permit\n tcp 192.168.100.0/24\n    any eq 443        ! HTTPS\naccess-list BRANCH-OUT deny\n ip any any log'},
+  sw3:       {zone:'Douala Branch',   desc:'Cisco Catalyst 2960 L2 switch. Connects all branch devices: PCs, wireless AP, VPN concentrator. Trunks VLANs 40 (staff) and 50 (wireless).',code:'interface FastEthernet0/1\n description PC-Dispatch-1\n switchport mode access\n switchport access vlan 40\n!\ninterface GigabitEthernet0/1\n description Uplink-FW\n switchport mode trunk\n switchport trunk allowed vlan 10,40,50'},
+  ap2:       {zone:'Douala Branch',   desc:'Cisco Aironet AP at Douala branch. Hidden SSID Hyperion-Branch. Drivers connect here when at branch base. WPA3-Enterprise auth via HQ Active Directory over VPN.',code:'SSID: Hyperion-Branch\nHidden: Yes\nSecurity: WPA3-Enterprise\nRadius: 10.10.0.5 ! HQ AD via VPN\nVLAN: 50\nBand: 5GHz\nCipher: AES\nMax clients: 30'},
+  pc2:       {zone:'Douala Branch',   desc:'3 Dell workstations for Douala dispatchers. Domain-joined to HQ Active Directory over VPN. Access Hyperion dashboard at https://dash.internal through VPN tunnel.',code:'# Group Policy\nDomain: hyperion.local\nOU:     Branch-Douala\nAuto-lock:  10 min idle\nBitLocker:  on\nAntivirus:  Windows Defender\nUpdates:    WSUS → HQ\nUSB ports:  blocked'},
+  driver:    {zone:'Field',           desc:'Android driver app. Connects via HTTPS + JWT. Streams GPS every 3 seconds over WebSocket. Receives order assignments, updates status, confirms delivery.',code:'locationClient\n .requestLocationUpdates(\n   LocationRequest.create()\n     .setInterval(3000)\n     .setPriority(HIGH_ACCURACY),\n   location -> wsClient.emit(\n     "driver:location",\n     Map.of(\n       "lat", location.latitude,\n       "lng", location.longitude,\n       "driverId", currentDriver.id\n     )\n   ), mainLooper\n )'},
+  customer:  {zone:'Field',           desc:'iOS/Android customer app. Place food, errand, or package orders. Track driver on live map. Pay with MTN MoMo or Orange Money. View order history.',code:'const placeOrder = async (data) => {\n const token = await SecureStore\n   .getItemAsync("userToken");\n return fetch(\n   "https://api.hyperion.cm/orders",\n   { method: "POST",\n     headers: {\n       Authorization:`Bearer ${token}`,\n       "Content-Type":"application/json"\n     },\n     body: JSON.stringify(data)\n   });\n};'},
+  tablet:    {zone:'Field',           desc:'Dispatcher tablets at branch offices. Monitor active orders, manually assign drivers when algorithm fails, and communicate with drivers via in-app chat.',code:'const assignManually = async\n    (orderId, driverId) => {\n await api.patch(\n   `/orders/${orderId}`,\n   { driverId,\n     assignedBy: currentUser.id,\n     assignmentType: "MANUAL" }\n );\n await api.post("/audit", {\n   action:"MANUAL_ASSIGN",\n   orderId, driverId });\n};'},
+};
+
+const journey=[
+  {label:'Step 1 — Customer opens app and places order',              hi:['customer'],                 flow:[]},
+  {label:'Step 2 — Request travels over internet via HTTPS + JWT',    hi:['customer','internet'],      flow:[{a:'customer',b:'internet'}]},
+  {label:'Step 3 — WAF inspects request, firewall validates zone',     hi:['internet','waf','fw1'],     flow:[{a:'internet',b:'waf'},{a:'waf',b:'fw1'}]},
+  {label:'Step 4 — Load balancer forwards to API Gateway',            hi:['fw1','lb','api'],           flow:[{a:'fw1',b:'lb'},{a:'lb',b:'api'}]},
+  {label:'Step 5 — API Gateway validates JWT token and rate-limits',   hi:['api'],                     flow:[]},
+  {label:'Step 6 — App Server creates order, triggers Match Engine',   hi:['api','app','match'],        flow:[{a:'api',b:'app'},{a:'app',b:'match'}]},
+  {label:'Step 7 — Match Engine scores drivers and writes to DB',      hi:['match','db'],              flow:[{a:'match',b:'db'}]},
+  {label:'Step 8 — WebSocket pushes assignment to driver app',         hi:['ws','driver'],             flow:[{a:'ws',b:'driver'}]},
+  {label:'Step 9 — Driver accepts — GPS streams live to customer',     hi:['driver','ws','customer'],  flow:[{a:'driver',b:'ws'},{a:'ws',b:'customer'}]},
+  {label:'Step 10 — Delivery done — Payment Module records transaction',hi:['pay','db','bck'],         flow:[{a:'pay',b:'db'},{a:'db',b:'bck'}]},
+];
+
+let tab=0, step=0, hov=null, sel=null, pts=[];
+
+function nid(id){return nodes.find(n=>n.id===id);}
+function cx(n){return n.x+n.w/2;}
+function cy(n){return n.y+n.h/2;}
+function ha(hex,a){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function visNodes(){
+  return tab===0?nodes.filter(n=>n.tab===0||n.tab===2):nodes.filter(n=>n.tab===1||n.tab===2);
+}
+function visEdges(){
+  const ids=new Set(visNodes().map(n=>n.id));
+  return edges.filter(e=>(e.tab===tab||e.tab===2)&&ids.has(e.a)&&ids.has(e.b));
+}
+function rr(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+function tickPts(){
+  if(Math.random()<0.14){
+    const ee=visEdges();
+    if(ee.length){
+      const e=ee[Math.floor(Math.random()*ee.length)];
+      const a=nid(e.a),b=nid(e.b);
+      if(a&&b){
+        const hi=tab===1&&journey[step].flow.some(f=>f.a===e.a&&f.b===e.b);
+        pts.push({ax:cx(a),ay:cy(a),bx:cx(b),by:cy(b),t:0,spd:0.01+Math.random()*0.01,hi,dash:e.dash});
+      }
+    }
+  }
+  pts=pts.filter(p=>p.t<1);
+  pts.forEach(p=>{p.t=Math.min(1,p.t+p.spd);});
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle=BG; ctx.fillRect(0,0,W,H);
+
+  const vn=visNodes();
+  const vnIds=new Set(vn.map(n=>n.id));
+  const ve=visEdges();
+
+  // zones
+  zones.filter(z=>z.tab===0||z.tab===tab||z.tab===2).forEach(z=>{
+    ctx.save();
+    ctx.fillStyle=z.f; ctx.strokeStyle=z.s;
+    ctx.lineWidth=1.5; ctx.setLineDash([6,4]);
+    rr(z.x,z.y,z.w,z.h,14); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.font='bold 11px sans-serif';
+    ctx.fillStyle=z.s;
+    ctx.fillText(z.label.toUpperCase(), z.x+14, z.y+16);
+  });
+
+  // edges
+  ve.forEach(e=>{
+    const a=nid(e.a),b=nid(e.b); if(!a||!b) return;
+    const hiSet=tab===1?journey[step].hi:[];
+    const hi=hiSet.includes(e.a)&&hiSet.includes(e.b);
+    ctx.save();
+    ctx.strokeStyle=hi?'#39d88a':'rgba(180,190,210,0.35)';
+    ctx.lineWidth=hi?2.5:1.2;
+    if(e.dash) ctx.setLineDash([7,5]);
+    ctx.beginPath();
+    const ax=cx(a),ay=cy(a),bx=cx(b),by=cy(b);
+    if(Math.abs(ax-bx)<20){
+      ctx.moveTo(ax,ay); ctx.lineTo(bx,by);
+    } else {
+      const my=(ay+by)/2;
+      ctx.moveTo(ax,ay); ctx.lineTo(ax,my); ctx.lineTo(bx,my); ctx.lineTo(bx,by);
+    }
+    ctx.stroke();
+    // arrowhead
+    const dx=bx-ax,dy=by-ay,len=Math.sqrt(dx*dx+dy*dy);
+    if(len>0){
+      const ux=dx/len,uy=dy/len;
+      const tx2=bx-ux*12,ty2=by-uy*12;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(bx,by);
+      ctx.lineTo(tx2-uy*6,ty2+ux*6);
+      ctx.lineTo(tx2+uy*6,ty2-ux*6);
+      ctx.closePath();
+      ctx.fillStyle=hi?'#39d88a':'rgba(180,190,210,0.5)';
+      ctx.fill();
+    }
+    ctx.restore();
+  });
+
+  // particles
+  tickPts();
+  pts.forEach(p=>{
+    const x=p.ax+(p.bx-p.ax)*p.t;
+    const y=p.ay+(p.by-p.ay)*p.t-Math.sin(p.t*Math.PI)*18;
+    ctx.beginPath();
+    ctx.arc(x,y,p.hi?4.5:3,0,Math.PI*2);
+    ctx.fillStyle=p.hi?'#39d88a':'rgba(100,180,255,0.7)';
+    ctx.fill();
+    // glow
+    if(p.hi){
+      ctx.beginPath();
+      ctx.arc(x,y,8,0,Math.PI*2);
+      ctx.fillStyle='rgba(57,216,138,0.15)';
+      ctx.fill();
+    }
+  });
+
+  // nodes
+  vn.forEach(n=>{
+    const hi=tab===1&&journey[step].hi.includes(n.id);
+    const hovered=hov===n.id, clicked=sel===n.id;
+    ctx.save();
+    if(hi||clicked){
+      ctx.shadowColor='rgba(57,216,138,0.8)';
+      ctx.shadowBlur=20;
+    } else if(hovered){
+      ctx.shadowColor=n.c+'aa';
+      ctx.shadowBlur=12;
+    }
+    // node background — solid fill for readability
+    ctx.fillStyle=ha(n.c, hi?0.45:hovered?0.38:0.28);
+    ctx.strokeStyle=hi?'#39d88a':(hovered||clicked?n.c:ha(n.c,0.85));
+    ctx.lineWidth=hi||clicked?2.5:1.2;
+    rr(n.x,n.y,n.w,n.h,8); ctx.fill(); ctx.stroke();
+    ctx.restore();
+
+    // left color bar
+    ctx.save();
+    ctx.fillStyle=n.c;
+    ctx.beginPath();
+    ctx.moveTo(n.x+8,n.y);ctx.lineTo(n.x,n.y);
+    ctx.arcTo(n.x,n.y,n.x,n.y+8,8);
+    ctx.lineTo(n.x,n.y+n.h-8);
+    ctx.arcTo(n.x,n.y+n.h,n.x+8,n.y+n.h,8);
+    ctx.lineTo(n.x+8,n.y+n.h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // icon
+    ctx.font='14px serif';
+    ctx.fillText(n.icon, n.x+14, n.y+n.h/2+5);
+
+    // label — bright white always
+    ctx.font='bold 12px sans-serif';
+    ctx.fillStyle='#ffffff';
+    ctx.fillText(trimTxt(n.label,n.w-36), n.x+32, n.y+(n.sub?n.h/2-4:n.h/2+4));
+
+    // sub label — light gray
+    if(n.sub){
+      ctx.font='10px sans-serif';
+      ctx.fillStyle='rgba(210,220,235,0.85)';
+      ctx.fillText(trimTxt(n.sub,n.w-36), n.x+32, n.y+n.h/2+11);
+    }
+  });
+
+  requestAnimationFrame(draw);
+}
+
+function trimTxt(s,mw){
+  if(s.length*6.5<=mw) return s;
+  return s.slice(0,Math.floor(mw/6.5)-2)+'…';
+}
+
+// interaction
+canvas.addEventListener('mousemove',e=>{
+  const r=canvas.getBoundingClientRect();
+  const sx=W/r.width,sy=H/r.height;
+  const mx=(e.clientX-r.left)*sx,my=(e.clientY-r.top)*sy;
+  const hit=visNodes().find(n=>mx>=n.x&&mx<=n.x+n.w&&my>=n.y&&my<=n.y+n.h);
+  hov=hit?hit.id:null;
+  canvas.style.cursor=hit?'pointer':'default';
+});
+canvas.addEventListener('click',e=>{
+  const r=canvas.getBoundingClientRect();
+  const sx=W/r.width,sy=H/r.height;
+  const mx=(e.clientX-r.left)*sx,my=(e.clientY-r.top)*sy;
+  const hit=visNodes().find(n=>mx>=n.x&&mx<=n.x+n.w&&my>=n.y&&my<=n.y+n.h);
+  if(hit){sel=hit.id;openPanel(hit);}
+  else{sel=null;closePanel();}
+});
+
+function openPanel(node){
+  const d=info[node.id]; if(!d) return;
+  document.getElementById('p-title').textContent=node.label;
+  const zt=document.getElementById('p-zone');
+  zt.textContent=d.zone;
+  zt.style.background=ha(node.c,0.25);
+  zt.style.color='#ffffff';
+  zt.style.border='0.5px solid '+ha(node.c,0.6);
+  document.getElementById('p-desc').textContent=d.desc;
+  document.getElementById('p-code').textContent=d.code;
+  document.getElementById('p-img-hint').textContent=node.label+' — device image';
+  document.getElementById('panel').classList.add('open');
+}
+function closePanel(){
+  document.getElementById('panel').classList.remove('open');
+  sel=null;
+}
+
+function switchTab(t){
+  tab=t; step=0;
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',i===t));
+  updateFooter(); closePanel();
+}
+function scrollToNode(nodeId){
+  const n=nid(nodeId); if(!n) return;
+  const vp=document.getElementById('viewport');
+  const vpW=vp.clientWidth, vpH=vp.clientHeight;
+  const scaleX=canvas.getBoundingClientRect().width/W;
+  const scaleY=canvas.getBoundingClientRect().height/H;
+  const nx=(n.x+n.w/2)*scaleX, ny=(n.y+n.h/2)*scaleY;
+  vp.scrollTo({left:nx-vpW/2, top:ny-vpH/2, behavior:'smooth'});
+}
+function nextStep(){
+  if(tab!==1) return;
+  step=(step+1)%journey.length;
+  updateFooter();
+  if(journey[step].hi.length) scrollToNode(journey[step].hi[0]);
+}
+function prevStep(){
+  if(tab!==1) return;
+  step=(step-1+journey.length)%journey.length;
+  updateFooter();
+  if(journey[step].hi.length) scrollToNode(journey[step].hi[0]);
+}
+function gotoStep(i){
+  step=i; updateFooter();
+  if(journey[step].hi.length) scrollToNode(journey[step].hi[0]);
+}
+window.gotoStep=gotoStep;
+function buildDots(){
+  const dc=document.getElementById('dots');
+  if(tab!==1){dc.innerHTML='';return;}
+  dc.innerHTML=journey.map((_,i)=>`<div class="dot${i===step?' active':''}" onclick="gotoStep(${i})"></div>`).join('');
+}
+function updateFooter(){
+  document.getElementById('step-lbl').textContent=
+    tab===0?'Click any component to inspect it':journey[step].label;
+  buildDots();
+}
+window.switchTab=switchTab;
+window.nextStep=nextStep;
+window.prevStep=prevStep;
+window.closePanel=closePanel;
+updateFooter();
+draw();
+</script>
